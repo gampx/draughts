@@ -85,6 +85,8 @@ struct Move {
 
   Move(Position s, const vector<Position>& m): start(s), moves(m) {}
 
+  bool is_valid() { return moves.size() > 0; }
+
   bool operator== (Move rhs) {
     return start.x == rhs.start.x && start.y == rhs.start.y && moves.size() > 0 &&
       rhs.moves.size() > 0 && moves[0].x == rhs.moves[0].x && moves[0].y == rhs.moves[0].y;
@@ -213,7 +215,7 @@ struct Rules {
   static vector<Move> possible_moves(const Board& board, Player player) {
     vector<Move> moves;
     for(int x = 0; x < board.kSize; x++) {
-      for(int y = 0; y < board.kSize; y++) {
+      for(int y = ~(x&1); y < board.kSize; y+=2) {
         if(board.at(x,y) == player.id) {
           auto moves_from_pos = possible_moves(board, {x,y});
           moves.insert(moves.end(), moves_from_pos.begin(), moves_from_pos.end());
@@ -262,23 +264,46 @@ struct State {
     return new_state;
   }
 
-  int evaluate() {
-    auto capture = has_capture();
-    State new_state = *this;
-    while(capture) {
-      new_state = new_state.apply_move(capture.value);
-      capture = new_state.has_capture();
+  State apply_any_move() const {
+    auto moves = Rules::possible_moves(board, player);
+    if(!moves.empty()) return apply_move(moves[0]);
+    return *this;
+  }
+
+  optional<Move> has_any_move_without_capture_response() {
+    auto moves = Rules::possible_moves(board, player);
+    if(moves.empty()) return {false, {{0,0}, {}}};
+    for(const auto& move: moves) {
+      State new_state = apply_move(move);
+      if(!new_state.has_capture()) return {true, move};
     }
-    if(new_state.player.id == player.id) return new_state.difference_in_pieces();
-    else return -new_state.difference_in_pieces();
+    return {false, moves[0]};
+  }
+
+  int evaluate() {
+    return difference_in_pieces();
+    //State new_state = *this;
+    //auto capture = new_state.has_capture();
+    //while(capture) {
+    //  new_state = new_state.apply_move(capture.value);
+    //  capture = new_state.has_capture();
+    //}
+    //auto safe_move = new_state.has_any_move_without_capture_response();
+    //if(!safe_move) {
+    //  new_state = new_state.apply_any_move();
+    //  capture = new_state.has_capture();
+    //  if(capture) new_state = new_state.apply_move(capture.value);
+    //}
+    //if(new_state.player.id == player.id) return new_state.difference_in_pieces();
+    //else return -new_state.difference_in_pieces();
   }
 
   int difference_in_pieces() {
     int score = 0;
     for(int x = 0; x < board.kSize; x++) {
-      for(int y = 0; y < board.kSize; y++) {
+      for(int y = ~(x&1); y < board.kSize; y+=2) {
         if(board.at(x,y) == player.id) score++;
-        if(board.at(x,y) == player.opposite()) score--;
+        else if(board.at(x,y) == player.opposite()) score--;
       }
     }
     return score;
@@ -363,7 +388,7 @@ Move find_best_move(const State& state) {
 #endif
     best_score = -kInf-1;
     best_move = last_best_move;
-    if(best_move.moves.size() != 0) {
+    if(best_move.is_valid()) {
       State new_state = state.apply_move(best_move);
       int score = -alpha_beta(new_state, depth, -kInf, kInf);
       if(score > best_score) {
